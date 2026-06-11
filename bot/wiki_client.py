@@ -61,11 +61,23 @@ def _parse_rotation_rows(table, *, steel_path: bool = False) -> list[RotationRow
         week_label = _clean(cells[0].get_text(" ", strip=True))
         if not week_label.lower().startswith("week"):
             continue
+        week_num_match = re.search(r"week\s*(\d+)", week_label, flags=re.IGNORECASE)
+        if not week_num_match:
+            continue
+        week_num = int(week_num_match.group(1))
 
         tail_cells = cells[1:]
         merged = " ".join(_clean(c.get_text(" ", strip=True)).lower() for c in tail_cells)
         if "schedule repeats" in merged:
             continue
+        if steel_path:
+            # Steel Path Circuit rotation is an 8-week cycle (A-H).
+            if not (1 <= week_num <= 8):
+                continue
+        else:
+            # Normal Circuit reward list currently has 11 concrete weeks.
+            if not (1 <= week_num <= 11):
+                continue
 
         deduped: list[str] = []
         if steel_path:
@@ -100,6 +112,9 @@ def _parse_rotation_rows(table, *, steel_path: bool = False) -> list[RotationRow
 
         if deduped:
             rows.append(RotationRow(week_label=week_label, items=deduped))
+    rows.sort(
+        key=lambda row: int(re.search(r"week\s*(\d+)", row.week_label, flags=re.IGNORECASE).group(1))
+    )
     return rows
 
 
