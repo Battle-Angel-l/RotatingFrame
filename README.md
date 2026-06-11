@@ -51,6 +51,9 @@ python main.py
 - Current week index is computed from epoch dates:
   - `CIRCUIT_NORMAL_EPOCH`
   - `CIRCUIT_STEEL_EPOCH`
+- Current default anchors:
+  - `CIRCUIT_NORMAL_EPOCH=2023-05-01`
+  - `CIRCUIT_STEEL_EPOCH=2023-05-29`
 - If wiki/game rotation alignment changes, update those two values in `.env`.
 - Data source pages:
   - `https://wiki.warframe.com/w/The_Circuit`

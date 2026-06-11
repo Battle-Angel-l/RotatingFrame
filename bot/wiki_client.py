@@ -30,6 +30,16 @@ def _extract_list_from_cell(cell) -> list[str]:
     return [part.strip() for part in text.split(",") if part.strip()]
 
 
+def _extract_first_link_or_text(cell) -> str | None:
+    first_link = cell.select_one("a")
+    if first_link is not None:
+        label = _clean(first_link.get_text(" ", strip=True))
+        if label:
+            return label
+    text = _clean(cell.get_text(" ", strip=True))
+    return text or None
+
+
 def _find_table_by_hint(soup: BeautifulSoup, hint: str):
     hint_lc = hint.lower()
     for table in soup.select("table.wikitable"):
@@ -57,13 +67,23 @@ def _parse_rotation_rows(table, *, steel_path: bool = False) -> list[RotationRow
         if "schedule repeats" in merged:
             continue
 
-        items: list[str] = []
-        for cell in tail_cells:
-            items.extend(_extract_list_from_cell(cell))
         deduped: list[str] = []
-        for item in items:
-            if item not in deduped and not item.lower().startswith("week"):
-                deduped.append(item)
+        if steel_path:
+            items: list[str] = []
+            for cell in tail_cells:
+                items.extend(_extract_list_from_cell(cell))
+            for item in items:
+                if item not in deduped and not item.lower().startswith("week"):
+                    deduped.append(item)
+        else:
+            # Each normal row has one reward cell per Warframe slot; each slot can
+            # contain extra links (e.g. augment mods). Keep only the first link.
+            for cell in tail_cells:
+                first_item = _extract_first_link_or_text(cell)
+                if not first_item or first_item.lower().startswith("week"):
+                    continue
+                if first_item not in deduped:
+                    deduped.append(first_item)
 
         if steel_path:
             # In the Steel Path table, variant links (e.g. Prime/Vandal) can appear
@@ -76,10 +96,7 @@ def _parse_rotation_rows(table, *, steel_path: bool = False) -> list[RotationRow
                 filtered = [name for name in deduped if name.strip().lower() not in blacklist]
                 deduped = (filtered or deduped)[:5]
         else:
-            # Normal Circuit weekly reward selection is 3 Warframes.
-            # Some wiki render paths expose augment links too; keep only first 3 entries.
-            if len(deduped) > 3:
-                deduped = deduped[:3]
+            deduped = deduped[:3]
 
         if deduped:
             rows.append(RotationRow(week_label=week_label, items=deduped))

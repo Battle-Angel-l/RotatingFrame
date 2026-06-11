@@ -49,6 +49,6 @@ def load_settings() -> Settings:
         rotations_message_id=_read_int("ROTATIONS_MESSAGE_ID"),
         update_interval_minutes=max(_read_int("UPDATE_INTERVAL_MINUTES", 5) or 5, 1),
         circuit_normal_epoch=_read_date("CIRCUIT_NORMAL_EPOCH", date(2023, 5, 1)),
-        circuit_steel_epoch=_read_date("CIRCUIT_STEEL_EPOCH", date(2023, 6, 5)),
+        circuit_steel_epoch=_read_date("CIRCUIT_STEEL_EPOCH", date(2023, 5, 29)),
         coda_epoch=_read_date("CODA_EPOCH", date(2025, 3, 18)),
     )
