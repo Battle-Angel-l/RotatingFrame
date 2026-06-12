@@ -11,7 +11,7 @@ from discord.ext import tasks
 from discord.errors import Forbidden
 
 from .config import Settings
-from .rotations import RotationState, build_rotation_state, format_remaining
+from .rotations import RotationState, build_rotation_state
 from .wiki_client import WikiClient
 
 
@@ -49,20 +49,21 @@ def _chunk(lines: list[str], size: int) -> list[list[str]]:
 
 
 def _build_embeds(state: RotationState) -> list[discord.Embed]:
+    weekly_reset_ts = int(state.next_reset_utc.timestamp())
     coda_lines: list[str] = []
     if state.coda_batch_label:
         coda_lines.append(f"Coda batch: **{state.coda_batch_label}**")
     if state.coda_next_reset_utc:
-        coda_lines.append(f"Coda next reset: <t:{int(state.coda_next_reset_utc.timestamp())}:F>")
-    if state.coda_time_until_reset is not None:
-        coda_lines.append(f"Coda time remaining: **{format_remaining(state.coda_time_until_reset)}**")
+        coda_reset_ts = int(state.coda_next_reset_utc.timestamp())
+        coda_lines.append(f"Coda next reset: <t:{coda_reset_ts}:F>")
+        coda_lines.append(f"Coda time remaining: **<t:{coda_reset_ts}:R>**")
     coda_block = "\n".join(coda_lines)
 
     overview = discord.Embed(
         title="Warframe Rotations",
         description=(
-            f"Next weekly reset: <t:{int(state.next_reset_utc.timestamp())}:F>\n"
-            f"Time remaining: **{format_remaining(state.time_until_reset)}**"
+            f"Next weekly reset: <t:{weekly_reset_ts}:F>\n"
+            f"Time remaining: **<t:{weekly_reset_ts}:R>**"
         ),
         color=discord.Color.blue(),
     )
