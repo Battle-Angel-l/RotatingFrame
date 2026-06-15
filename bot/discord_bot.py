@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
@@ -14,6 +15,8 @@ from discord.errors import Forbidden
 from .config import Settings
 from .rotations import RotationState, build_rotation_state
 from .wiki_client import WikiClient
+
+logger = logging.getLogger("warframe-bot.commands")
 
 
 @dataclass(slots=True)
@@ -191,6 +194,18 @@ class WarframeRotationBot(discord.Client):
         self.auto_publish.start()
 
     def _register_commands(self) -> None:
+        @self.tree.error
+        async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+            logger.exception("App command failed: %s", error)
+            message = f"Command failed: {error.__class__.__name__}. Check Railway logs."
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(message, ephemeral=True)
+                else:
+                    await interaction.response.send_message(message, ephemeral=True)
+            except Exception:
+                logger.exception("Failed to send app command error response")
+
         @self.tree.command(name="rotations", description="Show current Warframe rotations and timers.")
         async def rotations(interaction: discord.Interaction) -> None:
             await interaction.response.defer(thinking=True)
