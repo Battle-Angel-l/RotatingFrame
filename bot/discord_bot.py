@@ -10,7 +10,7 @@ from pathlib import Path
 import discord
 from discord import app_commands
 from discord.ext import tasks
-from discord.errors import Forbidden
+from discord.errors import Forbidden, HTTPException
 
 from .config import Settings
 from .rotations import RotationState, build_rotation_state
@@ -275,6 +275,12 @@ class WarframeRotationBot(discord.Client):
                         "Configured channel is unavailable. Run /set_channel again in the target channel.",
                         ephemeral=True,
                     )
+                elif reason == "missing_permissions":
+                    await interaction.followup.send(
+                        "I do not have permission to post in the configured channel. "
+                        "Grant Send Messages + Embed Links, then run /set_channel again there.",
+                        ephemeral=True,
+                    )
                 else:
                     await interaction.followup.send(
                         "Refresh failed due to a transient error. Try again in a few seconds.",
@@ -320,10 +326,19 @@ class WarframeRotationBot(discord.Client):
                 )
                 _save_publish_state(self.publish_state)
                 return True, "updated"
+            except Forbidden:
+                return False, "missing_permissions"
+            except HTTPException:
+                return False, "channel_unavailable"
             except Exception:
                 self.publish_state.message_id = None
 
-        sent = await channel.send(content="Auto-updated Warframe rotations", embeds=embeds)  # type: ignore[attr-defined]
+        try:
+            sent = await channel.send(content="Auto-updated Warframe rotations", embeds=embeds)  # type: ignore[attr-defined]
+        except Forbidden:
+            return False, "missing_permissions"
+        except HTTPException:
+            return False, "channel_unavailable"
         self.publish_state.message_id = sent.id
         self.publish_state.last_weekly_reset_ts = int(state.next_reset_utc.timestamp())
         self.publish_state.last_coda_reset_ts = (
