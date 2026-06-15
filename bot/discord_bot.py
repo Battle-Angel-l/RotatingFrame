@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
 import discord
@@ -19,6 +20,8 @@ from .wiki_client import WikiClient
 class PublishState:
     channel_id: int | None
     message_id: int | None
+    last_weekly_reset_ts: int | None
+    last_coda_reset_ts: int | None
 
 
 def _state_path() -> Path:
@@ -33,19 +36,51 @@ def _load_publish_state(default_channel_id: int | None, default_message_id: int 
             return PublishState(
                 channel_id=int(data.get("channel_id")) if data.get("channel_id") else default_channel_id,
                 message_id=int(data.get("message_id")) if data.get("message_id") else default_message_id,
+                last_weekly_reset_ts=int(data.get("last_weekly_reset_ts"))
+                if data.get("last_weekly_reset_ts")
+                else None,
+                last_coda_reset_ts=int(data.get("last_coda_reset_ts")) if data.get("last_coda_reset_ts") else None,
             )
         except (ValueError, json.JSONDecodeError):
             pass
-    return PublishState(channel_id=default_channel_id, message_id=default_message_id)
+    return PublishState(
+        channel_id=default_channel_id,
+        message_id=default_message_id,
+        last_weekly_reset_ts=None,
+        last_coda_reset_ts=None,
+    )
 
 
 def _save_publish_state(state: PublishState) -> None:
-    payload = {"channel_id": state.channel_id, "message_id": state.message_id}
+    payload = {
+        "channel_id": state.channel_id,
+        "message_id": state.message_id,
+        "last_weekly_reset_ts": state.last_weekly_reset_ts,
+        "last_coda_reset_ts": state.last_coda_reset_ts,
+    }
     _state_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def _chunk(lines: list[str], size: int) -> list[list[str]]:
     return [lines[i : i + size] for i in range(0, len(lines), size)]
+
+
+def _next_weekly_reset_utc(now_utc: datetime) -> datetime:
+    monday_zero = datetime.combine(now_utc.date(), time.min, tzinfo=timezone.utc)
+    days_until_next_monday = (7 - now_utc.weekday()) % 7
+    candidate = monday_zero + timedelta(days=days_until_next_monday)
+    if candidate <= now_utc:
+        candidate += timedelta(days=7)
+    return candidate
+
+
+def _next_coda_reset_utc(now_utc: datetime, coda_epoch_date) -> datetime:
+    coda_anchor = datetime.combine(coda_epoch_date, time.min, tzinfo=timezone.utc)
+    period = timedelta(days=4)
+    if now_utc < coda_anchor:
+        return coda_anchor
+    steps = int((now_utc - coda_anchor) // period) + 1
+    return coda_anchor + (period * steps)
 
 
 def _build_embeds(state: RotationState) -> list[discord.Embed]:
@@ -182,6 +217,8 @@ class WarframeRotationBot(discord.Client):
             channel = await interaction.guild.create_text_channel(name=name)
             self.publish_state.channel_id = channel.id
             self.publish_state.message_id = None
+            self.publish_state.last_weekly_reset_ts = None
+            self.publish_state.last_coda_reset_ts = None
             _save_publish_state(self.publish_state)
             await interaction.followup.send(f"Created channel {channel.mention} and set it as rotation channel.", ephemeral=True)
             await self._publish_to_configured_channel()
@@ -193,6 +230,8 @@ class WarframeRotationBot(discord.Client):
                 return
             self.publish_state.channel_id = interaction.channel_id
             self.publish_state.message_id = None
+            self.publish_state.last_weekly_reset_ts = None
+            self.publish_state.last_coda_reset_ts = None
             _save_publish_state(self.publish_state)
             await interaction.response.send_message("This channel is now the auto-rotation channel.", ephemeral=True)
             await self._publish_to_configured_channel()
@@ -236,16 +275,34 @@ class WarframeRotationBot(discord.Client):
             try:
                 message = await channel.fetch_message(self.publish_state.message_id)  # type: ignore[attr-defined]
                 await message.edit(content="Auto-updated Warframe rotations", embeds=embeds, attachments=[])
+                self.publish_state.last_weekly_reset_ts = int(state.next_reset_utc.timestamp())
+                self.publish_state.last_coda_reset_ts = (
+                    int(state.coda_next_reset_utc.timestamp()) if state.coda_next_reset_utc is not None else None
+                )
+                _save_publish_state(self.publish_state)
                 return
             except Exception:
                 self.publish_state.message_id = None
 
         sent = await channel.send(content="Auto-updated Warframe rotations", embeds=embeds)  # type: ignore[attr-defined]
         self.publish_state.message_id = sent.id
+        self.publish_state.last_weekly_reset_ts = int(state.next_reset_utc.timestamp())
+        self.publish_state.last_coda_reset_ts = (
+            int(state.coda_next_reset_utc.timestamp()) if state.coda_next_reset_utc is not None else None
+        )
         _save_publish_state(self.publish_state)
 
     @tasks.loop(minutes=1)
     async def auto_publish(self) -> None:
+        now_utc = datetime.now(tz=timezone.utc)
+        weekly_target = int(_next_weekly_reset_utc(now_utc).timestamp())
+        coda_target = int(_next_coda_reset_utc(now_utc, self.settings.coda_epoch).timestamp())
+        weekly_crossed = self.publish_state.last_weekly_reset_ts != weekly_target
+        coda_crossed = self.publish_state.last_coda_reset_ts != coda_target
+        if weekly_crossed or coda_crossed:
+            await self._publish_to_configured_channel()
+            return
+
         if self.settings.update_interval_minutes <= 1:
             await self._publish_to_configured_channel()
             return
