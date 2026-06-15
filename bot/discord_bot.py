@@ -239,8 +239,32 @@ class WarframeRotationBot(discord.Client):
         @self.tree.command(name="refresh_rotations", description="Force refresh the auto-posted rotation message now.")
         async def refresh_rotations(interaction: discord.Interaction) -> None:
             await interaction.response.defer(ephemeral=True, thinking=True)
-            await self._publish_to_configured_channel()
-            await interaction.followup.send("Rotation message refreshed.", ephemeral=True)
+            if self.publish_state.channel_id is None and interaction.channel_id is not None:
+                self.publish_state.channel_id = interaction.channel_id
+                self.publish_state.message_id = None
+                self.publish_state.last_weekly_reset_ts = None
+                self.publish_state.last_coda_reset_ts = None
+                _save_publish_state(self.publish_state)
+
+            ok, reason = await self._publish_to_configured_channel()
+            if ok:
+                await interaction.followup.send("Rotation message refreshed.", ephemeral=True)
+            else:
+                if reason == "no_channel":
+                    await interaction.followup.send(
+                        "No auto channel is configured yet. Run /set_channel in the target channel first.",
+                        ephemeral=True,
+                    )
+                elif reason == "channel_unavailable":
+                    await interaction.followup.send(
+                        "Configured channel is unavailable. Run /set_channel again in the target channel.",
+                        ephemeral=True,
+                    )
+                else:
+                    await interaction.followup.send(
+                        "Refresh failed due to a transient error. Try again in a few seconds.",
+                        ephemeral=True,
+                    )
 
     async def _compute_state(self, future_weeks: int) -> RotationState:
         snapshot = await self.wiki.fetch_snapshot()
@@ -252,24 +276,24 @@ class WarframeRotationBot(discord.Client):
             future_weeks=future_weeks,
         )
 
-    async def _publish_to_configured_channel(self) -> None:
+    async def _publish_to_configured_channel(self) -> tuple[bool, str]:
         channel_id = self.publish_state.channel_id
         if not channel_id:
-            return
+            return False, "no_channel"
         channel = self.get_channel(channel_id)
         if channel is None:
             try:
                 channel = await self.fetch_channel(channel_id)
             except discord.HTTPException:
-                return
+                return False, "channel_unavailable"
         if not isinstance(channel, discord.abc.Messageable):
-            return
+            return False, "channel_unavailable"
 
         try:
             state = await self._compute_state(future_weeks=6)
             embeds = _build_embeds(state)
         except Exception:
-            return
+            return False, "build_failed"
 
         if self.publish_state.message_id:
             try:
@@ -280,7 +304,7 @@ class WarframeRotationBot(discord.Client):
                     int(state.coda_next_reset_utc.timestamp()) if state.coda_next_reset_utc is not None else None
                 )
                 _save_publish_state(self.publish_state)
-                return
+                return True, "updated"
             except Exception:
                 self.publish_state.message_id = None
 
@@ -291,6 +315,7 @@ class WarframeRotationBot(discord.Client):
             int(state.coda_next_reset_utc.timestamp()) if state.coda_next_reset_utc is not None else None
         )
         _save_publish_state(self.publish_state)
+        return True, "created"
 
     @tasks.loop(minutes=1)
     async def auto_publish(self) -> None:
