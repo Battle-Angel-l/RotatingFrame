@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
-from .models import CodaWeaponBonus, RotationRow, RotationSnapshot
+from .models import CodaWeaponBonus, LotusGift, RotationRow, RotationSnapshot
 
 
 @dataclass(slots=True)
@@ -19,6 +19,7 @@ class RotationState:
     normal_future: list[RotationRow]
     steel_future: list[RotationRow]
     coda_bonus_rows: list[CodaWeaponBonus]
+    lotus_gifts: list[LotusGift]
 
 
 def _next_weekly_reset(now_utc: datetime) -> datetime:
@@ -107,6 +108,7 @@ def build_rotation_state(
         normal_future=normal_future,
         steel_future=steel_future,
         coda_bonus_rows=snapshot.coda_bonus_rows,
+        lotus_gifts=snapshot.lotus_gifts,
     )
 
 

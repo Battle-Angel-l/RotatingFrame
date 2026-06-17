@@ -6,14 +6,24 @@ from datetime import datetime, timedelta, timezone
 import aiohttp
 from bs4 import BeautifulSoup
 
-from .models import CodaWeaponBonus, RotationRow, RotationSnapshot
+from .models import CodaWeaponBonus, LotusGift, RotationRow, RotationSnapshot
 
 CIRCUIT_URL = "https://wiki.warframe.com/w/The_Circuit"
 CODA_WEAPONS_URL = "https://wiki.warframe.com/w/Coda_Weapons"
+LOTUS_ALERTS_URL = "https://hub.warframe.us/pc/alerts"
+LOTUS_ALERTS_FALLBACK_URL = "https://api.warframestat.us/pc/alerts"
 
 
 def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _short_item_name(raw: str) -> str:
+    text = _clean(raw)
+    if "/" in text:
+        text = text.rsplit("/", 1)[-1]
+    text = text.replace("_", " ")
+    return text
 
 
 def _extract_list_from_cell(cell) -> list[str]:
@@ -245,6 +255,129 @@ def _current_coda_batch_from_anchor(now_utc: datetime, anchor_utc: datetime | No
     return "A" if intervals % 2 == 0 else "B"
 
 
+def _parse_datetime_any(value) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)):
+        ts = float(value)
+        if ts > 1_000_000_000_000:
+            ts /= 1000.0
+        return datetime.fromtimestamp(ts, tz=timezone.utc)
+    if isinstance(value, str):
+        txt = value.strip()
+        if not txt:
+            return None
+        if txt.isdigit():
+            return _parse_datetime_any(int(txt))
+        try:
+            return datetime.fromisoformat(txt.replace("Z", "+00:00")).astimezone(timezone.utc)
+        except ValueError:
+            return None
+    if isinstance(value, dict):
+        # Older worldstate schema variants
+        nested = value.get("$date") if isinstance(value.get("$date"), (str, int, float, dict)) else None
+        if nested is not None:
+            return _parse_datetime_any(nested)
+        nested_long = value.get("$numberLong")
+        if nested_long is not None:
+            return _parse_datetime_any(nested_long)
+    return None
+
+
+def _extract_reward_lines(alert: dict) -> list[str]:
+    reward = alert.get("reward") or alert.get("missionReward") or alert.get("MissionReward") or {}
+    lines: list[str] = []
+
+    as_string = reward.get("asString") if isinstance(reward, dict) else None
+    if isinstance(as_string, str) and as_string.strip():
+        return [_clean(as_string)]
+
+    if isinstance(reward, dict):
+        credits = reward.get("credits")
+        if isinstance(credits, (int, float)) and credits > 0:
+            lines.append(f"{int(credits):,} Credits")
+
+        for key in ("items", "countedItems"):
+            raw_items = reward.get(key)
+            if not isinstance(raw_items, list):
+                continue
+            for item in raw_items:
+                if isinstance(item, str):
+                    lines.append(_short_item_name(item))
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                name = (
+                    item.get("name")
+                    or item.get("itemType")
+                    or item.get("ItemType")
+                    or item.get("type")
+                    or item.get("Type")
+                )
+                count = item.get("count") or item.get("ItemCount") or item.get("quantity") or item.get("counted")
+                label = _short_item_name(str(name)) if name else "Reward Item"
+                if isinstance(count, (int, float)) and int(count) > 1:
+                    label = f"{int(count)}x {label}"
+                lines.append(label)
+
+    deduped: list[str] = []
+    for line in lines:
+        if line and line not in deduped:
+            deduped.append(line)
+    return deduped
+
+
+def _extract_mission_text(alert: dict) -> str:
+    mission = alert.get("mission") or alert.get("MissionInfo") or {}
+    node = (
+        alert.get("location")
+        or mission.get("node")
+        or mission.get("location")
+        or alert.get("Node")
+        or "Unknown Node"
+    )
+    mission_type = mission.get("type") or mission.get("missionType") or alert.get("missionType") or "Mission"
+    min_lvl = mission.get("minEnemyLevel") or alert.get("minEnemyLevel")
+    max_lvl = mission.get("maxEnemyLevel") or alert.get("maxEnemyLevel")
+    if isinstance(min_lvl, (int, float)) and isinstance(max_lvl, (int, float)):
+        return f"{node} - {mission_type} ({int(min_lvl)}-{int(max_lvl)})"
+    return f"{node} - {mission_type}"
+
+
+def _parse_lotus_gifts(alerts_payload) -> list[LotusGift]:
+    alerts: list[dict] = []
+    if isinstance(alerts_payload, list):
+        alerts = [x for x in alerts_payload if isinstance(x, dict)]
+    elif isinstance(alerts_payload, dict):
+        nested = alerts_payload.get("alerts")
+        if isinstance(nested, dict):
+            data = nested.get("data")
+            if isinstance(data, list):
+                alerts = [x for x in data if isinstance(x, dict)]
+        elif isinstance(nested, list):
+            alerts = [x for x in nested if isinstance(x, dict)]
+
+    gifts: list[LotusGift] = []
+    for alert in alerts:
+        tag = (alert.get("tag") or alert.get("Tag") or "").strip()
+        mission_blob = _clean(str(alert.get("MissionInfo", "")))
+        if "lotusgift" not in tag.lower() and "lotusgift" not in mission_blob.lower():
+            continue
+        expires = _parse_datetime_any(alert.get("expiry") or alert.get("Expiry") or alert.get("end"))
+        gifts.append(
+            LotusGift(
+                mission=_extract_mission_text(alert),
+                rewards=_extract_reward_lines(alert),
+                expires_at_utc=expires,
+            )
+        )
+
+    gifts.sort(key=lambda g: g.expires_at_utc.timestamp() if g.expires_at_utc else 0)
+    return gifts
+
+
 class WikiClient:
     def __init__(self) -> None:
         self._timeout = aiohttp.ClientTimeout(total=25)
@@ -256,10 +389,23 @@ class WikiClient:
             html = await response.text()
         return BeautifulSoup(html, "html.parser")
 
+    async def _get_json(self, session: aiohttp.ClientSession, url: str):
+        async with session.get(url, headers=self._headers) as response:
+            response.raise_for_status()
+            return await response.json()
+
     async def fetch_snapshot(self) -> RotationSnapshot:
         async with aiohttp.ClientSession(timeout=self._timeout) as session:
             circuit_soup = await self._get_soup(session, CIRCUIT_URL)
             coda_soup = await self._get_soup(session, CODA_WEAPONS_URL)
+            lotus_payload = None
+            try:
+                lotus_payload = await self._get_json(session, LOTUS_ALERTS_URL)
+            except Exception:
+                try:
+                    lotus_payload = await self._get_json(session, LOTUS_ALERTS_FALLBACK_URL)
+                except Exception:
+                    lotus_payload = []
 
         now_utc = datetime.now(tz=timezone.utc)
         coda_anchor_utc = _parse_coda_anchor_utc(coda_soup)
@@ -277,4 +423,5 @@ class WikiClient:
             coda_bonus_rows=_parse_coda_bonus_rows(coda_soup, preferred_batch=coda_batch_label),
             coda_batch_label=coda_batch_label,
             coda_next_reset_utc=_next_coda_reset(now_utc, coda_anchor_utc),
+            lotus_gifts=_parse_lotus_gifts(lotus_payload),
         )

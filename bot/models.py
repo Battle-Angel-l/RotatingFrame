@@ -17,6 +17,13 @@ class CodaWeaponBonus:
 
 
 @dataclass(slots=True)
+class LotusGift:
+    mission: str
+    rewards: list[str]
+    expires_at_utc: datetime | None
+
+
+@dataclass(slots=True)
 class RotationSnapshot:
     fetched_at_utc: datetime
     normal_rows: list[RotationRow]
@@ -24,3 +31,4 @@ class RotationSnapshot:
     coda_bonus_rows: list[CodaWeaponBonus]
     coda_batch_label: str | None
     coda_next_reset_utc: datetime | None
+    lotus_gifts: list[LotusGift]

@@ -122,6 +122,29 @@ def _build_embeds(state: RotationState) -> list[discord.Embed]:
 
     embeds = [overview, normal_embed, steel_embed]
 
+    lotus_embed = discord.Embed(
+        title="Gifts from the Lotus",
+        color=discord.Color.gold(),
+    )
+    if state.lotus_gifts:
+        lines: list[str] = []
+        for gift in state.lotus_gifts:
+            reward_text = ", ".join(gift.rewards) if gift.rewards else "Unknown reward"
+            if gift.expires_at_utc:
+                expires_ts = int(gift.expires_at_utc.timestamp())
+                lines.append(
+                    f"- **{gift.mission}**\n"
+                    f"  Reward: {reward_text}\n"
+                    f"  Expires: <t:{expires_ts}:F> (<t:{expires_ts}:R>)"
+                )
+            else:
+                lines.append(f"- **{gift.mission}**\n  Reward: {reward_text}")
+        lotus_embed.description = "\n\n".join(lines)[:4096]
+    else:
+        lotus_embed.description = "No active Gifts from the Lotus right now."
+    lotus_embed.set_footer(text="Source: hub.warframe.us")
+    embeds.append(lotus_embed)
+
     if state.coda_bonus_rows:
         lines = [f"- {row.weapon}: {row.bonus_text}" for row in state.coda_bonus_rows]
         for idx, block in enumerate(_chunk(lines, 20), start=1):
