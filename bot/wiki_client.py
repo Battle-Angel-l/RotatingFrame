@@ -230,6 +230,21 @@ def _next_coda_reset(now_utc: datetime, anchor_utc: datetime | None) -> datetime
     return anchor_utc + (period * steps)
 
 
+def _current_coda_batch_from_anchor(now_utc: datetime, anchor_utc: datetime | None) -> str | None:
+    """Derive active A/B batch by 4-day alternation from known anchor.
+
+    Wiki text often renders both A and B status strings at once, so direct
+    string parsing can be ambiguous. This uses deterministic cycle math.
+    """
+    if anchor_utc is None:
+        return None
+    period = timedelta(days=4)
+    if now_utc < anchor_utc:
+        return "A"
+    intervals = int((now_utc - anchor_utc) // period)
+    return "A" if intervals % 2 == 0 else "B"
+
+
 class WikiClient:
     def __init__(self) -> None:
         self._timeout = aiohttp.ClientTimeout(total=25)
@@ -248,7 +263,9 @@ class WikiClient:
 
         now_utc = datetime.now(tz=timezone.utc)
         coda_anchor_utc = _parse_coda_anchor_utc(coda_soup)
-        coda_batch_label = _parse_coda_batch_label(coda_soup)
+        coda_batch_label = _current_coda_batch_from_anchor(now_utc, coda_anchor_utc) or _parse_coda_batch_label(
+            coda_soup
+        )
 
         normal_table = _find_table_by_hint(circuit_soup, "Normal Circuit Warframe Rotation")
         steel_table = _find_table_by_hint(circuit_soup, "Steel Path Incarnon Genesis Reward Rotation")
