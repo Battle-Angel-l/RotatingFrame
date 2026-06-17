@@ -122,28 +122,32 @@ def _build_embeds(state: RotationState) -> list[discord.Embed]:
 
     embeds = [overview, normal_embed, steel_embed]
 
-    lotus_embed = discord.Embed(
-        title="Gifts from the Lotus",
+    alerts_embed = discord.Embed(
+        title="Alerts",
         color=discord.Color.gold(),
     )
-    if state.lotus_gifts:
+    if state.alerts:
         lines: list[str] = []
-        for gift in state.lotus_gifts:
-            reward_text = ", ".join(gift.rewards) if gift.rewards else "Unknown reward"
-            if gift.expires_at_utc:
-                expires_ts = int(gift.expires_at_utc.timestamp())
+        max_alerts = 8
+        for alert in state.alerts[:max_alerts]:
+            marker = " [Gift from the Lotus]" if alert.is_lotus_gift else ""
+            reward_text = ", ".join(alert.rewards) if alert.rewards else "Unknown reward"
+            if alert.expires_at_utc:
+                expires_ts = int(alert.expires_at_utc.timestamp())
                 lines.append(
-                    f"- **{gift.mission}**\n"
+                    f"- **{alert.mission}**{marker}\n"
                     f"  Reward: {reward_text}\n"
                     f"  Expires: <t:{expires_ts}:F> (<t:{expires_ts}:R>)"
                 )
             else:
-                lines.append(f"- **{gift.mission}**\n  Reward: {reward_text}")
-        lotus_embed.description = "\n\n".join(lines)[:4096]
+                lines.append(f"- **{alert.mission}**{marker}\n  Reward: {reward_text}")
+        if len(state.alerts) > max_alerts:
+            lines.append(f"...and {len(state.alerts) - max_alerts} more alerts.")
+        alerts_embed.description = "\n\n".join(lines)[:4096]
     else:
-        lotus_embed.description = "No active Gifts from the Lotus right now."
-    lotus_embed.set_footer(text="Source: hub.warframe.us")
-    embeds.append(lotus_embed)
+        alerts_embed.description = "No active alerts right now."
+    alerts_embed.set_footer(text="Source: hub.warframe.us")
+    embeds.append(alerts_embed)
 
     if state.coda_bonus_rows:
         lines = [f"- {row.weapon}: {row.bonus_text}" for row in state.coda_bonus_rows]

@@ -17,10 +17,11 @@ class CodaWeaponBonus:
 
 
 @dataclass(slots=True)
-class LotusGift:
+class AlertEntry:
     mission: str
     rewards: list[str]
     expires_at_utc: datetime | None
+    is_lotus_gift: bool
 
 
 @dataclass(slots=True)
@@ -31,4 +32,4 @@ class RotationSnapshot:
     coda_bonus_rows: list[CodaWeaponBonus]
     coda_batch_label: str | None
     coda_next_reset_utc: datetime | None
-    lotus_gifts: list[LotusGift]
+    alerts: list[AlertEntry]

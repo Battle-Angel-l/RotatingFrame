@@ -7,12 +7,12 @@ Discord bot that posts and serves current Warframe rotation info from `wiki.warf
 - Weekly reset timers
 - Future Circuit rotations
 - Technocyte Coda weapon bonus values (from wiki rewards tables)
-- Gifts from the Lotus alerts (from worldstate API)
+- Alerts feed (with Gifts from the Lotus marked)
 
 ## Features
 
 - Slash commands:
-  - `/rotations` - current rotations + timer + coda bonus table + gifts from the lotus
+  - `/rotations` - current rotations + timer + coda bonus table + alerts feed
   - `/future weeks:<1-12>` - upcoming weekly rotations
   - `/setup_channel name:<channel-name>` - creates a dedicated channel and starts auto-posting there
   - `/set_channel` - uses the current channel for auto-posting

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import aiohttp
 from bs4 import BeautifulSoup
 
-from .models import CodaWeaponBonus, LotusGift, RotationRow, RotationSnapshot
+from .models import AlertEntry, CodaWeaponBonus, RotationRow, RotationSnapshot
 
 CIRCUIT_URL = "https://wiki.warframe.com/w/The_Circuit"
 CODA_WEAPONS_URL = "https://wiki.warframe.com/w/Coda_Weapons"
@@ -346,7 +346,7 @@ def _extract_mission_text(alert: dict) -> str:
     return f"{node} - {mission_type}"
 
 
-def _parse_lotus_gifts(alerts_payload) -> list[LotusGift]:
+def _parse_alerts(alerts_payload) -> list[AlertEntry]:
     alerts: list[dict] = []
     if isinstance(alerts_payload, list):
         alerts = [x for x in alerts_payload if isinstance(x, dict)]
@@ -359,23 +359,23 @@ def _parse_lotus_gifts(alerts_payload) -> list[LotusGift]:
         elif isinstance(nested, list):
             alerts = [x for x in nested if isinstance(x, dict)]
 
-    gifts: list[LotusGift] = []
+    parsed: list[AlertEntry] = []
     for alert in alerts:
         tag = (alert.get("tag") or alert.get("Tag") or "").strip()
         mission_blob = _clean(str(alert.get("MissionInfo", "")))
-        if "lotusgift" not in tag.lower() and "lotusgift" not in mission_blob.lower():
-            continue
+        is_lotus_gift = "lotusgift" in tag.lower() or "lotusgift" in mission_blob.lower()
         expires = _parse_datetime_any(alert.get("expiry") or alert.get("Expiry") or alert.get("end"))
-        gifts.append(
-            LotusGift(
+        parsed.append(
+            AlertEntry(
                 mission=_extract_mission_text(alert),
                 rewards=_extract_reward_lines(alert),
                 expires_at_utc=expires,
+                is_lotus_gift=is_lotus_gift,
             )
         )
 
-    gifts.sort(key=lambda g: g.expires_at_utc.timestamp() if g.expires_at_utc else 0)
-    return gifts
+    parsed.sort(key=lambda a: a.expires_at_utc.timestamp() if a.expires_at_utc else 0)
+    return parsed
 
 
 class WikiClient:
@@ -423,5 +423,5 @@ class WikiClient:
             coda_bonus_rows=_parse_coda_bonus_rows(coda_soup, preferred_batch=coda_batch_label),
             coda_batch_label=coda_batch_label,
             coda_next_reset_utc=_next_coda_reset(now_utc, coda_anchor_utc),
-            lotus_gifts=_parse_lotus_gifts(lotus_payload),
+            alerts=_parse_alerts(lotus_payload),
         )
