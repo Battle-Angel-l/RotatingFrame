@@ -118,12 +118,17 @@ def _parse_rotation_rows(table, *, steel_path: bool = False) -> list[RotationRow
     return rows
 
 
-def _parse_coda_bonus_rows(soup: BeautifulSoup) -> list[CodaWeaponBonus]:
-    # Primary source: the "Current Valence Bonuses" table on Coda Weapons page.
+def _parse_coda_bonus_rows(soup: BeautifulSoup, preferred_batch: str | None = None) -> list[CodaWeaponBonus]:
+    # Primary source: "Current Valence Bonuses" tables. Some page renders may
+    # include multiple batch variants; prefer the active batch when available.
+    rows_by_batch: dict[str, list[CodaWeaponBonus]] = {}
     for table in soup.select("table.wikitable"):
-        headers = [_clean(h.get_text(" ", strip=True)).lower() for h in table.select("tr th")]
-        header_blob = " | ".join(headers)
+        header_cells = [_clean(h.get_text(" ", strip=True)) for h in table.select("tr th")]
+        header_blob = " | ".join(h.lower() for h in header_cells)
         if "weapon (batch" in header_blob and "bonus %" in header_blob:
+            batch_match = re.search(r"weapon\s*\(batch\s*([a-z])\)", " ".join(header_cells), flags=re.IGNORECASE)
+            batch = batch_match.group(1).upper() if batch_match else "?"
+
             rows: list[CodaWeaponBonus] = []
             for tr in table.select("tr")[1:]:
                 cells = tr.find_all("td")
@@ -138,7 +143,12 @@ def _parse_coda_bonus_rows(soup: BeautifulSoup) -> list[CodaWeaponBonus]:
                     continue
                 rows.append(CodaWeaponBonus(weapon=weapon, bonus_text=bonus_match.group(0)))
             if rows:
-                return rows
+                rows_by_batch[batch] = rows
+
+    if preferred_batch and preferred_batch in rows_by_batch:
+        return rows_by_batch[preferred_batch]
+    if rows_by_batch:
+        return next(iter(rows_by_batch.values()))
 
     # Fallback parser for alternative layouts.
     results: list[CodaWeaponBonus] = []
@@ -173,6 +183,18 @@ def _parse_coda_bonus_rows(soup: BeautifulSoup) -> list[CodaWeaponBonus]:
 
 
 def _parse_coda_batch_label(soup: BeautifulSoup) -> str | None:
+    # The page often contains both A/B variants in static HTML; the active
+    # variant is typically the last "currently selling" status sentence.
+    text = _clean(soup.get_text(" ", strip=True))
+    status_matches = re.findall(
+        r"Eleanor is currently selling Batch\s*([A-Z])\s*weapons\.\s*Time left until Batch\s*([A-Z])\s*:",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if status_matches:
+        current_batch, _next_batch = status_matches[-1]
+        return current_batch.upper()
+
     for table in soup.select("table.wikitable"):
         headers = [_clean(h.get_text(" ", strip=True)) for h in table.select("tr th")]
         for header in headers:
@@ -226,6 +248,7 @@ class WikiClient:
 
         now_utc = datetime.now(tz=timezone.utc)
         coda_anchor_utc = _parse_coda_anchor_utc(coda_soup)
+        coda_batch_label = _parse_coda_batch_label(coda_soup)
 
         normal_table = _find_table_by_hint(circuit_soup, "Normal Circuit Warframe Rotation")
         steel_table = _find_table_by_hint(circuit_soup, "Steel Path Incarnon Genesis Reward Rotation")
@@ -234,7 +257,7 @@ class WikiClient:
             fetched_at_utc=now_utc,
             normal_rows=_parse_rotation_rows(normal_table, steel_path=False),
             steel_rows=_parse_rotation_rows(steel_table, steel_path=True),
-            coda_bonus_rows=_parse_coda_bonus_rows(coda_soup),
-            coda_batch_label=_parse_coda_batch_label(coda_soup),
+            coda_bonus_rows=_parse_coda_bonus_rows(coda_soup, preferred_batch=coda_batch_label),
+            coda_batch_label=coda_batch_label,
             coda_next_reset_utc=_next_coda_reset(now_utc, coda_anchor_utc),
         )
