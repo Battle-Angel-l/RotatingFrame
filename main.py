@@ -16,13 +16,16 @@ def main() -> None:
         (
             "Startup config loaded: "
             "guild_id=%s update_interval_minutes=%s "
-            "circuit_normal_epoch=%s circuit_steel_epoch=%s coda_epoch=%s"
+            "circuit_normal_epoch=%s circuit_steel_epoch=%s "
+            "coda_epoch=%s coda_epoch_batch=%s force_coda_batch=%s"
         ),
         settings.guild_id,
         settings.update_interval_minutes,
         settings.circuit_normal_epoch.isoformat(),
         settings.circuit_steel_epoch.isoformat(),
         settings.coda_epoch.isoformat(),
+        settings.coda_epoch_batch,
+        settings.force_coda_batch,
     )
     bot = WarframeRotationBot(settings)
     bot.run(settings.token)

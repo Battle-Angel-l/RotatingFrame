@@ -56,6 +56,8 @@ def build_rotation_state(
     normal_epoch: date,
     steel_epoch: date,
     coda_epoch: date,
+    coda_epoch_batch: str = "A",
+    force_coda_batch: str | None = None,
     future_weeks: int = 6,
 ) -> RotationState:
     now_utc = datetime.now(tz=timezone.utc)
@@ -78,13 +80,28 @@ def build_rotation_state(
     coda_time_until_reset: timedelta | None = None
     if coda_next_reset_utc is not None:
         coda_time_until_reset = coda_next_reset_utc - now_utc
+    coda_anchor = datetime.combine(coda_epoch, time.min, tzinfo=timezone.utc)
+    coda_period = timedelta(days=4)
+    if now_utc < coda_anchor:
+        intervals = 0
+    else:
+        intervals = int((now_utc - coda_anchor) // coda_period)
+    batch_at_epoch = (coda_epoch_batch or "A").upper()
+    if batch_at_epoch not in {"A", "B"}:
+        batch_at_epoch = "A"
+    if batch_at_epoch == "A":
+        computed_coda_batch = "A" if intervals % 2 == 0 else "B"
+    else:
+        computed_coda_batch = "B" if intervals % 2 == 0 else "A"
+    if force_coda_batch in {"A", "B"}:
+        computed_coda_batch = force_coda_batch
     return RotationState(
         now_utc=now_utc,
         next_reset_utc=next_reset_utc,
         time_until_reset=next_reset_utc - now_utc,
         coda_next_reset_utc=coda_next_reset_utc,
         coda_time_until_reset=coda_time_until_reset,
-        coda_batch_label=snapshot.coda_batch_label,
+        coda_batch_label=computed_coda_batch,
         normal_current=normal_current,
         steel_current=steel_current,
         normal_future=normal_future,

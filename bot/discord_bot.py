@@ -294,6 +294,8 @@ class WarframeRotationBot(discord.Client):
             normal_epoch=self.settings.circuit_normal_epoch,
             steel_epoch=self.settings.circuit_steel_epoch,
             coda_epoch=self.settings.coda_epoch,
+            coda_epoch_batch=self.settings.coda_epoch_batch,
+            force_coda_batch=self.settings.force_coda_batch,
             future_weeks=future_weeks,
         )
 

@@ -35,12 +35,21 @@ class Settings:
     circuit_normal_epoch: date
     circuit_steel_epoch: date
     coda_epoch: date
+    coda_epoch_batch: str
+    force_coda_batch: str | None
 
 
 def load_settings() -> Settings:
     token = os.getenv("DISCORD_TOKEN", "").strip()
     if not token:
         raise RuntimeError("DISCORD_TOKEN is required.")
+
+    coda_epoch_batch = os.getenv("CODA_EPOCH_BATCH", "A").strip().upper() or "A"
+    if coda_epoch_batch not in {"A", "B"}:
+        coda_epoch_batch = "A"
+    force_coda_batch = os.getenv("FORCE_CODA_BATCH", "").strip().upper() or None
+    if force_coda_batch not in {"A", "B"}:
+        force_coda_batch = None
 
     return Settings(
         token=token,
@@ -51,4 +60,6 @@ def load_settings() -> Settings:
         circuit_normal_epoch=_read_date("CIRCUIT_NORMAL_EPOCH", date(2023, 5, 1)),
         circuit_steel_epoch=_read_date("CIRCUIT_STEEL_EPOCH", date(2023, 5, 29)),
         coda_epoch=_read_date("CODA_EPOCH", date(2025, 3, 18)),
+        coda_epoch_batch=coda_epoch_batch,
+        force_coda_batch=force_coda_batch,
     )
