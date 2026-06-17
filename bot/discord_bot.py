@@ -90,7 +90,7 @@ def _build_embeds(state: RotationState) -> list[discord.Embed]:
     weekly_reset_ts = int(state.next_reset_utc.timestamp())
     coda_lines: list[str] = []
     if state.coda_batch_label:
-        coda_lines.append(f"Coda batch: **{state.coda_batch_label}**")
+        coda_lines.append(f"Current coda rotation: **Batch {state.coda_batch_label}**")
     if state.coda_next_reset_utc:
         coda_reset_ts = int(state.coda_next_reset_utc.timestamp())
         coda_lines.append(f"Coda next reset: <t:{coda_reset_ts}:F>")
