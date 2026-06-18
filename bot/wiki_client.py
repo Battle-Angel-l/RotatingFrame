@@ -26,6 +26,37 @@ def _short_item_name(raw: str) -> str:
     return text
 
 
+def _append_reward_from_item(lines: list[str], item) -> None:
+    if isinstance(item, str):
+        label = _short_item_name(item)
+        if label:
+            lines.append(label)
+        return
+    if not isinstance(item, dict):
+        return
+
+    name = (
+        item.get("name")
+        or item.get("itemType")
+        or item.get("ItemType")
+        or item.get("type")
+        or item.get("Type")
+        or item.get("label")
+        or item.get("value")
+    )
+    count = (
+        item.get("count")
+        or item.get("ItemCount")
+        or item.get("quantity")
+        or item.get("counted")
+        or item.get("amount")
+    )
+    label = _short_item_name(str(name)) if name else "Reward Item"
+    if isinstance(count, (int, float)) and int(count) > 1:
+        label = f"{int(count)}x {label}"
+    lines.append(label)
+
+
 def _extract_list_from_cell(cell) -> list[str]:
     items: list[str] = []
     for link in cell.select("a"):
@@ -287,40 +318,65 @@ def _parse_datetime_any(value) -> datetime | None:
 
 
 def _extract_reward_lines(alert: dict) -> list[str]:
-    reward = alert.get("reward") or alert.get("missionReward") or alert.get("MissionReward") or {}
     lines: list[str] = []
+    reward_candidates: list = []
 
-    as_string = reward.get("asString") if isinstance(reward, dict) else None
-    if isinstance(as_string, str) and as_string.strip():
-        return [_clean(as_string)]
+    mission = alert.get("mission") if isinstance(alert.get("mission"), dict) else {}
+    mission_info = alert.get("MissionInfo") if isinstance(alert.get("MissionInfo"), dict) else {}
 
-    if isinstance(reward, dict):
-        credits = reward.get("credits")
+    # Common reward payload locations in hub/warframestat/worldstate shapes.
+    for candidate in (
+        alert.get("reward"),
+        alert.get("rewards"),
+        alert.get("missionReward"),
+        alert.get("MissionReward"),
+        mission.get("reward") if isinstance(mission, dict) else None,
+        mission.get("rewards") if isinstance(mission, dict) else None,
+        mission_info.get("missionReward") if isinstance(mission_info, dict) else None,
+        mission_info.get("MissionReward") if isinstance(mission_info, dict) else None,
+    ):
+        if candidate is not None:
+            reward_candidates.append(candidate)
+
+    for reward in reward_candidates:
+        if isinstance(reward, str):
+            cleaned = _clean(reward)
+            if cleaned:
+                lines.append(cleaned)
+                continue
+        if isinstance(reward, list):
+            for item in reward:
+                _append_reward_from_item(lines, item)
+            continue
+        if not isinstance(reward, dict):
+            continue
+
+        as_string = reward.get("asString")
+        if isinstance(as_string, str) and as_string.strip():
+            lines.append(_clean(as_string))
+
+        credits = reward.get("credits") or reward.get("Credits")
         if isinstance(credits, (int, float)) and credits > 0:
             lines.append(f"{int(credits):,} Credits")
 
-        for key in ("items", "countedItems"):
+        for key in (
+            "items",
+            "Items",
+            "countedItems",
+            "CountedItems",
+            "rewardItems",
+            "rewards",
+        ):
             raw_items = reward.get(key)
             if not isinstance(raw_items, list):
                 continue
             for item in raw_items:
-                if isinstance(item, str):
-                    lines.append(_short_item_name(item))
-                    continue
-                if not isinstance(item, dict):
-                    continue
-                name = (
-                    item.get("name")
-                    or item.get("itemType")
-                    or item.get("ItemType")
-                    or item.get("type")
-                    or item.get("Type")
-                )
-                count = item.get("count") or item.get("ItemCount") or item.get("quantity") or item.get("counted")
-                label = _short_item_name(str(name)) if name else "Reward Item"
-                if isinstance(count, (int, float)) and int(count) > 1:
-                    label = f"{int(count)}x {label}"
-                lines.append(label)
+                _append_reward_from_item(lines, item)
+
+    # Some payloads expose credits outside nested reward objects.
+    alert_credits = alert.get("credits") or alert.get("Credits")
+    if isinstance(alert_credits, (int, float)) and alert_credits > 0:
+        lines.append(f"{int(alert_credits):,} Credits")
 
     deduped: list[str] = []
     for line in lines:
